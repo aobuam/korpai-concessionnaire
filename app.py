@@ -2,23 +2,19 @@ import streamlit as st
 import re
 import openai
 from openai import OpenAI
-from pinecone import Pinecone
 import os
 
 openai_api_key = st.secrets["OPENAI_API_KEY"]
-pinecone_api_key = st.secrets["PINECONE_API_KEY"]
 index_name = st.secrets["INDEX_NAME"]
 
 # Initialisation des API
 openai.api_key = openai_api_key  # Clé OpenAI
 client = OpenAI(api_key=openai_api_key)  # Clé OpenAI pour le client
-pc = Pinecone(api_key=pinecone_api_key)  # Clé Pinecone
-index = pc.Index(index_name)  # Nom de l'index Pinecone
 
 # Configuration de la page
 st.set_page_config(
     page_title="Concessionnaire AI",  # Titre de l'onglet
-    page_icon="https://yt3.googleusercontent.com/DfdvAuF8NjXPJbIbGqIfF9u89HpNQ86tfUTlnd_gw2ajNPh1bzPcOsCgsNEgt0IBzVjaVPQ80A=s160-c-k-c0x00ffffff-no-rj",  # URL du favicon
+    page_icon="https://www.cittoncars.co.za/wp-content/uploads/2023/06/chrysler-logo-1955.jpg",  # URL du favicon
     layout="wide",  # Mise en page large
 )
 
@@ -36,36 +32,6 @@ custom_styles = """
 st.write(f'<div style="display:none;">{custom_styles}</div>', unsafe_allow_html=True)
 st.markdown(custom_styles, unsafe_allow_html=True)
 
-
-# Fonction pour générer un embedding avec OpenAI
-def generate_embedding(text):
-    response = openai.embeddings.create(input=[text], model="text-embedding-ada-002")
-    embedding = response.data[0].embedding
-    return embedding
-
-
-# Fonction pour effectuer une recherche sémantique
-def semantic_search(query, top_k=10, score_threshold=0.75):
-    try:
-        query_embedding = generate_embedding(query)
-        results = index.query(
-            vector=query_embedding,
-            top_k=top_k,
-            include_metadata=True
-        )
-        links = []
-        for i, result in enumerate(results.matches):
-            if result.score < score_threshold:
-                break
-            metadata = result.metadata
-            links.append({
-                "title": metadata["title"],
-                "url": metadata["url"]
-            })
-        return links
-    except Exception as e:
-        st.error(f"Erreur lors de la recherche Pinecone : {e}")
-        return None
 
 
 # Ajout de l'entête
@@ -92,7 +58,7 @@ def add_header():
         }
         </style>
         <div class="header">
-            <img class="logo" src="https://www.cittoncars.co.za/blog/the-evolution-of-the-chrysler-badge/">
+            <img class="logo" src="https://www.cittoncars.co.za/wp-content/uploads/2023/06/chrysler-logo-1955.jpg">
             <img class="user-icon" src="https://www.iconpacks.net/icons/2/free-user-icon-3296-thumb.png" alt="User Icon">
         </div>
         """,
@@ -156,8 +122,8 @@ def discuter_avec_gpt():
             margin-top: -10px;
         }
         </style>
-        <h1 class="title">Duke AI</h1>
-        <p class="subtitle">Ask any question about Duke University.</p>
+        <h1 class="title">Concessionnaire AI</h1>
+        <p class="subtitle">Posez n'importe quelle question sur nos voitures.</p>
         """,
         unsafe_allow_html=True,
     )
@@ -170,7 +136,7 @@ def discuter_avec_gpt():
         if user_question.strip():
             if not st.session_state.messages or st.session_state.messages[-1].get("content") != user_question:
                 st.session_state.messages.append({"role": "user", "content": user_question})
-            
+
             loading_container = st.empty()
             with loading_container:
                 st.markdown(
@@ -193,54 +159,21 @@ def discuter_avec_gpt():
                 )
 
             bot_response = ""
-            results = semantic_search(user_question, top_k=5, score_threshold=0.75)
-            if not results:
-                bot_response = "I couldn't find any relevant information. Please try another question."
-                st.session_state.messages.append({"role": "assistant", "content": bot_response})
-            else:
-                context = "\n".join([f"[{result['title']}]({result['url']})" for result in results])
-                prompt = (
-                    "You are Duke AI, a virtual assistant created for Duke University. An expert in academic support, university services, "
-                    "and student resources, you assist users with practical advice tailored to their needs. Your tone is approachable, "
-                    "professional, and concise, reflecting the welcoming culture of Duke University.\n\n"
-                    "Directives for your responses:\n"
-                    "1. **Prioritize user-visible context:**\n"
-                    "   - Base your responses solely on the visible context of the conversation (questions and answers exchanged with the user).\n"
-                    "   - When a question is asked:\n"
-                    "     - If the question mentions a specific service, resource, or topic (e.g., 'Duke Health'), ensure the response focuses only on that specific subject.\n"
-                    "     - Otherwise, if the question is general (e.g., 'Tell me more'), rely on the previous visible exchanges to identify the main topic and expand on it.\n"
-                    "     - Otherwise, if no relevant information or context is available, respond: "
-                    "'I currently do not have enough information to answer your question. Could you clarify or provide more details?'\n\n"
-                    "2. **Filter and validate information:**\n"
-                    "   - When retrieving relevant resources or information, apply the following rules:\n"
-                    "     - Use only information directly related to the question or the main topic from the conversation.\n"
-                    "     - Exclude any resources or details that do not align with the user's question or are not specific to Duke University.\n"
-                    "     - Avoid sharing unrelated or ambiguous information.\n\n"
-                    "3. **Structure your responses:**\n"
-                    "   - Organize your response into clear and concise points or paragraphs.\n"
-                    "   - If applicable, include references to Duke University resources or links, with a brief description of each resource.\n"
-                    "   - Ensure your response is easy to read and addresses the user's question comprehensively.\n\n"
-                    "4. **Maintain conversational logic:**\n"
-                    "   - When the user asks a follow-up question (e.g., 'Tell me more'), ensure your response builds on the specific topic from the previous exchanges.\n"
-                    "   - If no clear connection to previous exchanges exists, politely ask for clarification.\n\n"
-                    "5. **Tone and clarity:**\n"
-                    "   - Use an approachable yet professional tone that reflects Duke University's culture.\n"
-                    "   - Provide responses that are concise but rich in relevant and practical information.\n\n"
-                    f"Context:\n{context}\n\n"
-                    "Question: Respond directly and in detail to the question asked, following the rules above. "
-                    "Focus on relevant Duke University resources, services, or advice. If applicable, include links to these resources with a brief explanation of their purpose. "
-                    "If the question is ambiguous or lacks context, request clarification to better address the user's needs."
-                )
+            prompt = (
+                "Tu es un assisstant concessionnaire. Tu réponds aux les questions de tes clients. Tu es un demo donc ecris des choses qui sont crédibles."
+                "Parle de modèles de voitures A, B, C etc. Tu parles des prix et des modes de financements"
+                "Soit proffessionel, concis.\n\n"
+            )
 
-                response = client.chat.completions.create(
-                    messages=[{"role": "system", "content": prompt}],
-                    model="gpt-3.5-turbo",
-                )
-                bot_response = response.choices[0].message.content
-                st.session_state.messages.append({"role": "assistant", "content": bot_response})
+            response = client.chat.completions.create(
+                messages=[{"role": "system", "content": prompt}],
+                model="gpt-3.5-turbo",
+            )
+            bot_response = response.choices[0].message.content
+            st.session_state.messages.append({"role": "assistant", "content": bot_response})
 
-            loading_container.empty()
-            st.session_state["user_question"] = ""
+        loading_container.empty()
+        st.session_state["user_question"] = ""
 
     for idx, message in enumerate(st.session_state.messages):
         if message["role"] == "user":
